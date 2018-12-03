@@ -26,16 +26,22 @@ class sos_stata:
         #
         # get variables with names from env.sos_dict and create
         # them in the subkernel. The current kernel should be stata
-        for name in names:
-            if not isinstance(env.sos_dict[name], pd.DataFrame):
-                if self.sos_kernel._debug_mode:
-                    self.sos_kernel.warn('Cannot transfer a non DataFrame object {} of type {} to stata'.format(
-                        name, env.sos_dict[name].__class__.__name__))
-                continue
-            # convert dataframe to stata
-            env.sos_dict[name].to_stata()
-            stata_code = 'use {}'
-            self.sos_kernel.run_cell(stata_code, True, False, on_error='Failed to put variable {} to stata'.format(name))
+        temp_dir = tempfile.mkdtemp()
+        try:
+            for name in names:
+                if not isinstance(env.sos_dict[name], pd.DataFrame):
+                    if self.sos_kernel._debug_mode:
+                        self.sos_kernel.warn('Cannot transfer a non DataFrame object {} of type {} to stata'.format(
+                            name, env.sos_dict[name].__class__.__name__))
+                    continue
+                # convert dataframe to stata
+                filename = os.path.join(temp_dir, f'{name}.dta')
+                env.sos_dict[name].to_stata(filename)
+                stata_code = f'use {filename}'
+                self.sos_kernel.run_cell(stata_code, True, False, on_error='Failed to put variable {} to stata'.format(name))
+        finally:
+            # clear up the temp dir
+            shutil.rmtree(temp_dir)
 
     def put_vars(self, items, to_kernel=None):
         # put stata dataset to Python as dataframe
@@ -45,13 +51,16 @@ class sos_stata:
             for idx, item in enumerate(items):
                 try:
                     code = f'''\
+local _olddir : pwd
 use {item}
-save {temp_dir}/data_{idx}.dta
-'''.format(temp_dir, idx, item)
+cd {temp_dir}
+save data_{idx}.dta
+cd `_olddir'
+'''
                     # run the code to save file
                     self.sos_kernel.run_cell(code, True, False, on_error=f"Failed to get data set {item} from stata")
                     # check if file exists
-                    saved_file = os.path.join(temp_dir, 'data_{}.dta'.format(idx))
+                    saved_file = os.path.join(temp_dir, f'data_{idx}.dta')
                     if not os.path.isfile(saved_file):
                         self.sos_kernel.warn('Failed to save dataset {} to {}'.format(item, saved_file))
                         continue
@@ -70,4 +79,4 @@ save {temp_dir}/data_{idx}.dta
         stata_code = '''\
 version
 '''
-        return self.sos_kernel.get_response(stata_code, ('execute_result',))[0][1]['data']['text/html']
+        return self.sos_kernel.get_response(stata_code, ('stream',))[0][1]['text']
