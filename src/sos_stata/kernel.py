@@ -11,107 +11,63 @@ import tempfile
 from sos.utils import env
 
 
-class sos_SAS(SASsession):
+class sos_stata:
     supported_kernels = {'Stata': ['stata']}
-    background_color = '#9CD4F9'
+    background_color = '#CAE8F3'
     options = {}
-    cd_command = "x 'cd {dir}';"
+    cd_command = "cd {dir}"
 
-    def __init__(self, sos_kernel, kernel_name='sas'):
+    def __init__(self, sos_kernel, kernel_name='stata'):
         self.sos_kernel = sos_kernel
         self.kernel_name = kernel_name
         self.init_statements = ''
-        #
-        # we intentionally do not call SASsessionSTDIO's constructor, which needs to read
-        # saspy configurations etc and will try to start SAS
-        #
-        #self.pid    = None
-        #self.stdin  = None
-        #self.stderr = None
-        #self.stdout = None
-
-        #self.sascfg   = SASconfigSTDIO(**kwargs)
-        #self._log_cnt = 0
-        #self._log     = ""
-        #self._sb      = kwargs.get('sb', None)
-
-        #self._startsas()
-        self.stdin = BytesIO()
-        self.pid = None
-        # mimick a sascfg object with argparse Namespace
-        self.sascfg = argparse.Namespace()
-        self.sascfg.encoding = 'utf-8'
-        self.sascfg.output = 'html'
-        self._sb = argparse.Namespace()
-        self._sb._dsopts = lambda x: ''
 
     def get_vars(self, names):
         #
         # get variables with names from env.sos_dict and create
-        # them in the subkernel. The current kernel should be SAS
+        # them in the subkernel. The current kernel should be stata
         for name in names:
             if not isinstance(env.sos_dict[name], pd.DataFrame):
                 if self.sos_kernel._debug_mode:
-                    self.sos_kernel.warn('Cannot transfer a non DataFrame object {} of type {} to SAS'.format(
+                    self.sos_kernel.warn('Cannot transfer a non DataFrame object {} of type {} to stata'.format(
                         name, env.sos_dict[name].__class__.__name__))
                 continue
-            # sas cannot handle columns with non-string header
-            data = env.sos_dict[name].rename(columns={x:str(x) for x in env.sos_dict[name].columns})
-            # convert dataframe to SAS
-            self.dataframe2sasdata(data, name, "")
-            sas_code = self.stdin.getvalue().decode('utf-8')
-            self.stdin.seek(0)
-            self.stdin.truncate()
-            if self.sos_kernel._debug_mode:
-                self.sos_kernel.warn('Executing\n{}'.format(sas_code))
-            self.sos_kernel.run_cell(sas_code, True, False, on_error='Failed to put variable {} to SAS'.format(name))
+            # convert dataframe to stata
+            env.sos_dict[name].to_stata()
+            stata_code = 'use {}'
+            self.sos_kernel.run_cell(stata_code, True, False, on_error='Failed to put variable {} to stata'.format(name))
 
     def put_vars(self, items, to_kernel=None):
-        # put SAS dataset to Python as dataframe
+        # put stata dataset to Python as dataframe
         temp_dir = tempfile.mkdtemp()
         res = {}
         try:
             for idx, item in enumerate(items):
                 try:
-                    code = '''\
-libname TEMP '{}';
-Data TEMP.dat_{};
-   set {};
-run;
+                    code = f'''\
+use {item}
+save {temp_dir}/data_{idx}.dta
 '''.format(temp_dir, idx, item)
                     # run the code to save file
-                    self.sos_kernel.run_cell(code, True, False, on_error="Failed to get data set {} from SAS".format(item))
+                    self.sos_kernel.run_cell(code, True, False, on_error=f"Failed to get data set {item} from stata")
                     # check if file exists
-                    saved_file = os.path.join(temp_dir, 'dat_{}.sas7bdat'.format(idx))
+                    saved_file = os.path.join(temp_dir, 'data_{}.dta'.format(idx))
                     if not os.path.isfile(saved_file):
                         self.sos_kernel.warn('Failed to save dataset {} to {}'.format(item, saved_file))
                         continue
                     # now try to read it with Python
-                    df = pd.read_sas(saved_file, encoding='utf-8')
+                    df = pd.read_stata(saved_file)
                     res[item] = df
                 except Exception as e:
-                    self.sos_kernel.warn('Failed to get dataset {} from SAS: {}'.format(item, e))
+                    self.sos_kernel.warn('Failed to get dataset {} from stata: {}'.format(item, e))
         finally:
             # clear up the temp dir
             shutil.rmtree(temp_dir)
         return res
 
-    def parse_response(self, html):
-        # separate response into LOG (with class err) and LST (with class s)
-        LOG = ''
-        LST = ''
-        for line in html.split('</span>'):
-            if 'class="err"' in line:
-                LOG += line.replace('<br>', '\n').replace('<span class="err">', '') + ' '
-            elif 'class="s"' in line:
-                LST += line.replace('<br>', '\n').replace('<span class="s">', '') + ' '
-        return {'LOG':LOG, 'LST':LST}
-
     def sessioninfo(self):
         # return information of the kernel
-        sas_code = '''\
-PROC PRODUCT_STATUS;
-run;
+        stata_code = '''\
+version
 '''
-        response = self.sos_kernel.get_response(sas_code, ('execute_result',))[0][1]['data']['text/html']
-        return self.parse_response(response)['LOG']
+        return self.sos_kernel.get_response(stata_code, ('execute_result',))[0][1]['data']['text/html']

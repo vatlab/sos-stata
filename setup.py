@@ -14,7 +14,7 @@ with open('src/sos_stata/_version.py') as version:
 
 setup(name = "sos-stata",
     version = __version__,
-    description = 'SoS Notebook extension for stata',
+    description = 'SoS Notebook extension for Stata',
     author = 'Bo Peng',
     url = 'https://github.com/vatlab/sos-stata',
     author_email = 'bpeng@mdanderson.org',
@@ -25,7 +25,7 @@ setup(name = "sos-stata",
     classifiers = [
         'Development Status :: 4 - Beta',
         'Environment :: Console',
-        'License :: OSI Approved :: GNU General Public License (GPL)',
+        'License :: OSI Approved :: BSD',
         'Natural Language :: English',
         'Operating System :: POSIX :: Linux',
         'Operating System :: MacOS :: MacOS X',
@@ -38,11 +38,11 @@ setup(name = "sos-stata",
     packages = find_packages('src'),
     package_dir = {'': 'src'},
     install_requires=[
-          'sos>=0.9.12.0',
-          'sos-notebook>=0.9.11.6'
+          'sos>=0.17.7',
+          'sos-notebook>=0.17.2'
       ],
     entry_points= '''
 [sos_languages]
-stata = sos_stata.kernel:sos_stata
+Stata = sos_stata.kernel:sos_stata
 '''
 )
