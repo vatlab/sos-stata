@@ -4,12 +4,10 @@
 # Distributed under the terms of the 3-clause BSD License.
 
 import os
-import shutil
 import pandas as pd
-import argparse
-import tempfile
+from tempfile import TemporaryDirectory
+from textwrap import dedent
 from sos.utils import env
-
 
 class sos_stata:
     supported_kernels = {'Stata': ['stata']}
@@ -26,56 +24,46 @@ class sos_stata:
         #
         # get variables with names from env.sos_dict and create
         # them in the subkernel. The current kernel should be stata
-        temp_dir = tempfile.mkdtemp()
-        try:
+        with TemporaryDirectory() as temp_dir:
             for name in names:
                 if not isinstance(env.sos_dict[name], pd.DataFrame):
                     if self.sos_kernel._debug_mode:
-                        self.sos_kernel.warn('Cannot transfer a non DataFrame object {} of type {} to stata'.format(
-                            name, env.sos_dict[name].__class__.__name__))
+                        self.sos_kernel.warn(f'Cannot transfer a non DataFrame object {name} to stata')
                     continue
                 # convert dataframe to stata
                 filename = os.path.join(temp_dir, f'{name}.dta')
                 env.sos_dict[name].to_stata(filename)
                 stata_code = f'use {filename}'
-                self.sos_kernel.run_cell(stata_code, True, False, on_error='Failed to put variable {} to stata'.format(name))
-        finally:
-            # clear up the temp dir
-            shutil.rmtree(temp_dir)
+                self.sos_kernel.run_cell(stata_code, True, False,
+                    on_error=f'Failed to put variable {name} to stata')
 
     def put_vars(self, items, to_kernel=None):
         # put stata dataset to Python as dataframe
-        temp_dir = tempfile.mkdtemp()
         res = {}
-        try:
+        with TemporaryDirectory() as temp_dir:
             for idx, item in enumerate(items):
                 try:
                     code = f'''\
-local _olddir : pwd
-cd {temp_dir}
-save data_{idx}.dta
-cd `_olddir'
-'''
+                        local _olddir : pwd
+                        cd {temp_dir}
+                        save data_{idx}.dta
+                        cd `_olddir'
+                    '''
                     # run the code to save file
-                    self.sos_kernel.run_cell(code, True, False, on_error=f"Failed to get data set {item} from stata")
+                    self.sos_kernel.run_cell(dedent(code), True, False,
+                        on_error=f"Failed to get data set {item} from stata")
                     # check if file exists
                     saved_file = os.path.join(temp_dir, f'data_{idx}.dta')
                     if not os.path.isfile(saved_file):
-                        self.sos_kernel.warn('Failed to save dataset {} to {}'.format(item, saved_file))
+                        self.sos_kernel.warn(f'Failed to save dataset {item} to {saved_file}')
                         continue
                     # now try to read it with Python
                     df = pd.read_stata(saved_file)
                     res[item] = df
                 except Exception as e:
-                    self.sos_kernel.warn('Failed to get dataset {} from stata: {}'.format(item, e))
-        finally:
-            # clear up the temp dir
-            shutil.rmtree(temp_dir)
+                    self.sos_kernel.warn(f'Failed to get dataset {item} from stata: {e}')
         return res
 
     def sessioninfo(self):
         # return information of the kernel
-        stata_code = '''\
-version
-'''
-        return self.sos_kernel.get_response(stata_code, ('stream',))[0][1]['text']
+        return self.sos_kernel.get_response('version', ('stream',))[0][1]['text']
