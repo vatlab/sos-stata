@@ -52,7 +52,6 @@ class sos_stata:
                 try:
                     code = f'''\
 local _olddir : pwd
-use {item}
 cd {temp_dir}
 save data_{idx}.dta
 cd `_olddir'
