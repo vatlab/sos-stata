@@ -24,24 +24,47 @@ class sos_stata:
         #
         # get variables with names from env.sos_dict and create
         # them in the subkernel. The current kernel should be stata
-        with TemporaryDirectory() as temp_dir:
-            for name in names:
-                if not isinstance(env.sos_dict[name], pd.DataFrame):
-                    if self.sos_kernel._debug_mode:
-                        self.sos_kernel.warn(f'Cannot transfer a non DataFrame object {name} to stata')
-                    continue
-                # convert dataframe to stata
-                filename = os.path.join(temp_dir, f'{name}.dta')
-                env.sos_dict[name].to_stata(filename)
-                stata_code = f'use {filename}'
-                self.sos_kernel.run_cell(stata_code, True, False,
+        for name in names:
+            var = env.sos_dict[name]
+            # https://www.stata.com/help.cgi?data+types
+            if isinstance(var, (int, float)):
+                # byte, int, long
+                self.sos_kernel.run_cell(f'global {name} {var}', True, False,
                     on_error=f'Failed to put variable {name} to stata')
+            elif isinstance(var, str):
+                # string L (L is length)
+                # we are using local var = "str"
+                # to send string to Stata, but I am not sure how to handle " and \n etc
+                var = var.replace('\n', '')
+                self.sos_kernel.run_cell(f'global {name} {var}', True, False,
+                    on_error=f'Failed to put variable {name} to stata')
+            elif isinstance(var, pd.DataFrame):
+                # convert dataframe to stata
+                with TemporaryDirectory() as temp_dir:
+                    filename = os.path.join(temp_dir, f'{name}.dta')
+                    env.sos_dict[name].to_stata(filename)
+                    self.sos_kernel.run_cell(f'use {filename}', True, False,
+                        on_error=f'Failed to put variable {name} to stata')
+            else:
+                #if self.sos_kernel._debug_mode:
+                self.sos_kernel.warn(f'Cannot transfer object {name} of type {var.__class__.__name__} to stata')#
+
 
     def put_vars(self, items, to_kernel=None):
         # put stata dataset to Python as dataframe
-        res = {}
+        response = self.sos_kernel.get_response('macro list', ('stream'))
+        response = [x[1]['text'].split(':', 1) for x in response if ':' in x[1]['text']]
+        all_vars = {x:y.strip() for x,y in response if x.startswith('sos') or x in items}
+        res = {x:y.strip("'") if y.startswith("'") and y.endswith("'") else y for x,y in all_vars.items()}
+
+        remaining = [x for x in items if x not in all_vars]
+
+        if not remaining:
+            return res
+
+        # first, get a list of global macros
         with TemporaryDirectory() as temp_dir:
-            for idx, item in enumerate(items):
+            for idx, item in enumerate(remaining):
                 try:
                     code = f'''\
                         local _olddir : pwd
