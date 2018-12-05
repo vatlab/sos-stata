@@ -29,14 +29,14 @@ class sos_stata:
             # https://www.stata.com/help.cgi?data+types
             if isinstance(var, (int, float)):
                 # byte, int, long
-                self.sos_kernel.run_cell(f'global {name} {var}', True, False,
+                self.sos_kernel.run_cell(f'local {name} {var}', True, False,
                     on_error=f'Failed to put variable {name} to stata')
             elif isinstance(var, str):
                 # string L (L is length)
                 # we are using local var = "str"
                 # to send string to Stata, but I am not sure how to handle " and \n etc
                 var = var.replace('\n', '')
-                self.sos_kernel.run_cell(f'global {name} {var}', True, False,
+                self.sos_kernel.run_cell(f'local {name} {var}', True, False,
                     on_error=f'Failed to put variable {name} to stata')
             elif isinstance(var, pd.DataFrame):
                 # convert dataframe to stata
@@ -54,10 +54,18 @@ class sos_stata:
         # put stata dataset to Python as dataframe
         response = self.sos_kernel.get_response('macro list', ('stream'))
         response = [x[1]['text'].split(':', 1) for x in response if ':' in x[1]['text']]
-        all_vars = {x:y.strip() for x,y in response if x.startswith('sos') or x in items}
-        res = {x:y.strip("'") if y.startswith("'") and y.endswith("'") else y for x,y in all_vars.items()}
+        res = {}
+        for x,y in response:
+            if x.startswith('_sos'):
+                res[x[1:]] = y.strip()
+            elif x.startswith('sos') and x not in res:
+                res[x] = y.strip()
+            elif x.startswith('_') and x[1:] in items:
+                res[x[1:]] = y.strip()
+            elif x in items and x not in res:
+                res[x] = y.strip()
 
-        remaining = [x for x in items if x not in all_vars]
+        remaining = [x for x in items if x not in res]
 
         if not remaining:
             return res
@@ -78,7 +86,7 @@ class sos_stata:
                     # check if file exists
                     saved_file = os.path.join(temp_dir, f'data_{idx}.dta')
                     if not os.path.isfile(saved_file):
-                        self.sos_kernel.warn(f'Failed to save dataset {item} to {saved_file}')
+                        self.sos_kernel.warn(f'Failed to save dataset to {saved_file}')
                         continue
                     # now try to read it with Python
                     df = pd.read_stata(saved_file)
