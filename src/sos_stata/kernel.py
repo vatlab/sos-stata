@@ -95,6 +95,14 @@ class sos_stata:
                     self.sos_kernel.warn(f'Failed to get dataset {item} from stata: {e}')
         return res
 
+    def preview(self, item):
+        # put stata dataset to Python as dataframe
+        res = self.sos_kernel.get_response(f'macro list {item}', ('stream'))[0][1]['text']
+        if ':' in res:
+            return f'macro', res.split(':', 1)[-1].strip()
+        else:
+            return 'Unknown macro', ''
+
     def sessioninfo(self):
         # return information of the kernel
         return self.sos_kernel.get_response('version', ('stream',))[0][1]['text']
