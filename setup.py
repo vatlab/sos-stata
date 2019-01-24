@@ -38,8 +38,8 @@ setup(name = "sos-stata",
     packages = find_packages('src'),
     package_dir = {'': 'src'},
     install_requires=[
-          'sos>=0.17.7',
-          'sos-notebook>=0.17.2'
+          'sos>=0.18.0',
+          'sos-notebook>=0.18.0'
       ],
     entry_points= '''
 [sos_languages]
